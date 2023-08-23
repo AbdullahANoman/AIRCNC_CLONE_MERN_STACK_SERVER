@@ -50,21 +50,56 @@ async function run() {
       res.send(result);
     });
 
-
-    app.get('/users', async(req,res)=>{
-      const result = await usersCollection.find().toArray();
+    // check host 
+    app.get('/users/:email', async(req,res)=>{
+      const email = req.params.email;
+      const query = {email: email}
+      const result = await usersCollection.find(query).toArray();
       res.send(result)
     })
 
+    //updateUserToHost 
+
+    // app.patch('/users/:email', (req,res)=>{
+    //   const email = req.params.email;
+    //   const body = req.body
+    //   const filter = { email: email };
+    //   const updateDoc = {
+    //     $set: body,
+    //   };
+
+    //   const result = usersCollection.updateOne(filter,updateDoc)
+    //   res.send(result)
+    // })
+
+
+
+
+    
+
+    //save a room in database
     app.post('/addRooms' , async(req,res)=>{
       const room = req.body ;
       const result = await roomsCollection.insertOne(room)
       res.send(result)
     })
+
+    // get all rooms 
     app.get('/rooms', async(req,res)=>{
       const result = await roomsCollection.find().toArray();
       res.send(result)
     })
+
+    //getSingleRoom 
+
+    app.get('/rooms/:id', async(req,res)=>{
+      const id = req.params.id ;
+      const query = { _id: new ObjectId(id) };
+      const result = await roomsCollection.findOne(query);
+      res.send(result);
+    })
+
+    
     // app.post("/users/:email", async (req, res) => {
     //   const email = req.params.email;
     //   const query = { email: email };
