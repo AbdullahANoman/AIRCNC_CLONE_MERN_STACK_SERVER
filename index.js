@@ -1,6 +1,9 @@
 const express = require("express");
 const app = express();
 const cors = require("cors");
+const jwt = require("jsonwebtoken");
+const morgan = require("morgan");
+
 require("dotenv").config();
 const port = process.env.PORT || 5000;
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
@@ -13,6 +16,7 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 app.use(express.json());
+app.use(morgan("dev"));
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.r3tx4xp.mongodb.net/?retryWrites=true&w=majority`;
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -31,6 +35,16 @@ async function run() {
     const usersCollection = client.db("aircncDb").collection("users");
     const roomsCollection = client.db("aircncDb").collection("rooms");
     const bookingsCollection = client.db("aircncDb").collection("bookings");
+
+    // create jsonwebtoken
+
+    app.post("/jwt", async (req, res) => {
+      const email = req.body;
+      const token = jwt.sign(email, process.env.ACCESS_TOKEN, {
+        expiresIn: "1h",
+      });
+      res.send({ token });
+    });
 
     // Save user email and role
     app.put("/users/:email", async (req, res) => {
@@ -93,13 +107,22 @@ async function run() {
       const result = await roomsCollection.findOne(query);
       res.send(result);
     });
-    //checkMyListing which rooms was I am added 
-    app.get('/getMyAddedRooms/:email', async(req,res)=>{
+    //checkMyListing which rooms was I am added
+    app.get("/getMyAddedRooms/:email", async (req, res) => {
       const email = req.params.email;
-      const filter ={'host.email' : email}
-      const result = await roomsCollection.find(filter).toArray()
-      res.send(result)
-    })
+      const filter = { "host.email": email };
+      const result = await roomsCollection.find(filter).toArray();
+      res.send(result);
+    });
+    //myListing my rooms delete singleRoom
+    app.delete("/deleteSingleRoom/:id", async (req, res) => {
+      const id = req.params.id;
+
+      const filter = { _id: new ObjectId(id) };
+      email;
+      const result = await roomsCollection.deleteOne(filter);
+      res.send(result);
+    });
     // add booking in database
 
     app.post("/bookings", async (req, res) => {
@@ -115,12 +138,22 @@ async function run() {
     });
 
     // find the my booking with email
-    app.get("/bookings", async (req, res) => {
+    app.get("/myBookings", async (req, res) => {
       const email = req.query.email;
       if (!email) {
-        res.send([])
+        res.send([]);
       }
       const query = { "guest.email": email };
+      const result = await bookingsCollection.find(query).toArray();
+      res.send(result);
+    });
+
+    app.get("/bookings/host", async (req, res) => {
+      const email = req.query.email;
+      if (!email) {
+        res.send([]);
+      }
+      const query = { host: email };
       const result = await bookingsCollection.find(query).toArray();
       res.send(result);
     });
