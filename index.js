@@ -2,9 +2,21 @@ const express = require("express");
 const app = express();
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
-const morgan = require("morgan");
-
 require("dotenv").config();
+const morgan = require("morgan");
+const stripe = require("stripe")(`${process.env.STRIPE_SECRET_KEY}`);
+const nodemailer = require("nodemailer");
+
+app.use(express.static("public"));
+app.use(express.json());
+
+const calculateOrderAmount = (items) => {
+  // Replace this constant with a calculation of the order's amount
+  // Calculate the order total on the server to prevent
+  // people from directly manipulating the amount on the client
+  return 1400;
+};
+
 const port = process.env.PORT || 5000;
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
@@ -27,6 +39,53 @@ const client = new MongoClient(uri, {
     deprecationErrors: true,
   },
 });
+
+const verifyJWT = async (req, res, next) => {
+  const authorization = req.headers.authorization;
+  if (!authorization) {
+    return res.status(401).send({ message: "Unauthorized Access" });
+  } else {
+    const token = authorization.split(" ")[1];
+    jwt.verify(token, process.env.ACCESS_TOKEN, (err, decoded) => {
+      if (err) {
+        return res
+          .status(403)
+          .send({ error: true, message: "Token is not valid" });
+      } else {
+        req.decoded = decoded;
+        next();
+      }
+    });
+  }
+};
+
+// use Nodemailer
+
+const useNodeMailer = (data, emailAddress) => {
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: process.env.NODEMAILER_EMAIL,
+      pass: process.env.NODEMAILER_PASS,
+    },
+  });
+  const mailOptions = {
+    from: process.env.NODEMAILER_EMAIL,
+    to: emailAddress,
+    subject: data.subject,
+    html: `<p>${data.message}</p>`,
+  };
+
+  transporter.sendMail(mailOptions, function (error, info) {
+    if (error) {
+      console.log(error);
+    } else {
+      console.log("Email sent: " + info.response);
+      // do something useful
+    }
+  });
+};
+
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
@@ -107,9 +166,16 @@ async function run() {
       const result = await roomsCollection.findOne(query);
       res.send(result);
     });
+
     //checkMyListing which rooms was I am added
-    app.get("/getMyAddedRooms/:email", async (req, res) => {
+    app.get("/getMyAddedRooms/:email", verifyJWT, async (req, res) => {
+      const decoded = req.decoded;
       const email = req.params.email;
+      if (email !== decoded?.email) {
+        return res
+          .status(403)
+          .send({ error: true, message: "Forbidden Access" });
+      }
       const filter = { "host.email": email };
       const result = await roomsCollection.find(filter).toArray();
       res.send(result);
@@ -119,7 +185,6 @@ async function run() {
       const id = req.params.id;
 
       const filter = { _id: new ObjectId(id) };
-      email;
       const result = await roomsCollection.deleteOne(filter);
       res.send(result);
     });
@@ -128,6 +193,24 @@ async function run() {
     app.post("/bookings", async (req, res) => {
       const item = req.body;
       const result = await bookingsCollection.insertOne(item);
+      console.log(result);
+      if (result.insertedId) {
+        useNodeMailer(
+          {
+            subject: "Booking Successful!",
+            message: `Booking Id: ${result?.insertedId}, TransactionId: ${item.transactionId}`,
+          },
+          item?.guest?.email
+        );
+        // Send confirmation email to host
+        useNodeMailer(
+          {
+            subject: "Your room got booked!",
+            message: `Booking Id: ${result?.insertedId}, TransactionId: ${item.transactionId}. Check dashboard for more info`,
+          },
+          item?.host
+        );
+      }
       res.send(result);
     });
 
@@ -178,6 +261,40 @@ async function run() {
       };
 
       const result = await roomsCollection.updateOne(query, updateDoc, options);
+      res.send(result);
+    });
+
+    // create client secret
+    app.post("/create-payment-intent", verifyJWT, async (req, res) => {
+      const price = req.body.price;
+      console.log(price);
+      if (price) {
+        const amount = parseFloat(price) * 100;
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: amount,
+          currency: "usd",
+          payment_method_types: ["card"],
+        });
+        res.send({ clientSecret: paymentIntent.client_secret });
+      }
+    });
+
+    // update Room data
+
+    app.put("/updateRoom/:id", verifyJWT, async (req, res) => {
+      const id = req.params.id;
+      const body = req.body;
+      console.log(id, body);
+      const filter = { _id: new ObjectId(id) };
+      const options = { upsert: true };
+      const updateDoc = {
+        $set: body,
+      };
+      const result = await roomsCollection.updateOne(
+        filter,
+        updateDoc,
+        options
+      );
       res.send(result);
     });
 
